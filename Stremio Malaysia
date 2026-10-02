@@ -1,32 +1,39 @@
-# Stremio-Malaysia
-Stremio Malaysia Film Drama
+require("dotenv").config();
 const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
 const axios = require("axios");
 
-const TMDB_API_KEY = "3436592461608dfb2ad72e9480e7ca43";
+const TMDB_API_KEY = process.env.TMDB_API_KEY;
+const PORT = process.env.PORT || 7000;
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
 
-// 1. Definisikan Manifest (Siri TV & Carian Diaktifkan)
+// Semakan Keselamatan API Key
+if (!TMDB_API_KEY || TMDB_API_KEY.includes("33436592461608dfb2ad72e9480e7ca43")) {
+  console.error("❌ RALAT KRITIKAL: TMDB_API_KEY tidak ditetapkan atau belum diganti!");
+} else {
+  console.log("✅ TMDB_API_KEY berjaya dimuatkan.");
+}
+
+// 1. Definisikan Manifest Addon
 const manifest = {
   id: "org.filemdramamalaysia.stremio",
   version: "1.1.0",
   name: "Filem & Drama Malaysia",
   description: "Katalog khas Filem & Drama/Siri TV Malaysia berserta fungsi carian.",
   resources: ["catalog", "meta", "stream"],
-  types: ["movie", "series"], // Menambah jenis "series"
+  types: ["movie", "series"],
   catalogs: [
     {
       type: "movie",
       id: "my_movies",
       name: "Filem Malaysia",
-      extra: [{ name: "search", isRequired: false }] // Mengaktifkan carian Filem
+      extra: [{ name: "search", isRequired: false }]
     },
     {
       type: "series",
       id: "my_series",
       name: "Drama / Siri TV Malaysia",
-      extra: [{ name: "search", isRequired: false }] // Mengaktifkan carian Drama
+      extra: [{ name: "search", isRequired: false }]
     }
   ],
   idPrefixes: ["tmdb:"]
@@ -34,7 +41,7 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-// Helper Function: Format Meta Filem
+// Helper Functions
 function formatMovieMeta(movie) {
   return {
     id: `tmdb:${movie.id}`,
@@ -46,7 +53,6 @@ function formatMovieMeta(movie) {
   };
 }
 
-// Helper Function: Format Meta Siri TV / Drama
 function formatSeriesMeta(series) {
   return {
     id: `tmdb:${series.id}`,
@@ -64,10 +70,8 @@ builder.defineCatalogHandler(async (args) => {
   const searchQuery = isSearch ? args.extra.search : "";
 
   try {
-    // --- KATEGORI FILEM ---
     if (args.type === "movie") {
       if (isSearch) {
-        // Carian Filem
         const response = await axios.get(`${TMDB_BASE_URL}/search/movie`, {
           params: { api_key: TMDB_API_KEY, query: searchQuery, language: "ms-MY" }
         });
@@ -76,7 +80,6 @@ builder.defineCatalogHandler(async (args) => {
           .map(formatMovieMeta);
         return { metas };
       } else {
-        // Discover Filem Malaysia Popular
         const response = await axios.get(`${TMDB_BASE_URL}/discover/movie`, {
           params: {
             api_key: TMDB_API_KEY,
@@ -85,15 +88,12 @@ builder.defineCatalogHandler(async (args) => {
             language: "ms-MY"
           }
         });
-        const metas = response.data.results.map(formatMovieMeta);
-        return { metas };
+        return { metas: response.data.results.map(formatMovieMeta) };
       }
     }
 
-    // --- KATEGORI SIRI TV / DRAMA ---
     if (args.type === "series") {
       if (isSearch) {
-        // Carian Drama / Siri TV
         const response = await axios.get(`${TMDB_BASE_URL}/search/tv`, {
           params: { api_key: TMDB_API_KEY, query: searchQuery, language: "ms-MY" }
         });
@@ -102,7 +102,6 @@ builder.defineCatalogHandler(async (args) => {
           .map(formatSeriesMeta);
         return { metas };
       } else {
-        // Discover Drama Malaysia Popular
         const response = await axios.get(`${TMDB_BASE_URL}/discover/tv`, {
           params: {
             api_key: TMDB_API_KEY,
@@ -111,8 +110,7 @@ builder.defineCatalogHandler(async (args) => {
             language: "ms-MY"
           }
         });
-        const metas = response.data.results.map(formatSeriesMeta);
-        return { metas };
+        return { metas: response.data.results.map(formatSeriesMeta) };
       }
     }
 
@@ -123,7 +121,7 @@ builder.defineCatalogHandler(async (args) => {
   }
 });
 
-// 3. Handler Metadata Terperinci (Lengkap dengan Episod)
+// 3. Handler Metadata (Filem & Siri TV)
 builder.defineMetaHandler(async (args) => {
   const tmdbId = args.id.replace("tmdb:", "");
 
@@ -140,9 +138,9 @@ builder.defineMetaHandler(async (args) => {
           name: movie.title,
           poster: movie.poster_path ? `${TMDB_IMAGE_BASE}${movie.poster_path}` : null,
           background: movie.backdrop_path ? `https://image.tmdb.org/t/p/original${movie.backdrop_path}` : null,
-          description: movie.overview,
+          description: movie.overview || "Tiada sinopsis tersedia.",
           releaseInfo: movie.release_date ? movie.release_date.substring(0, 4) : "",
-          genres: movie.genres.map((g) => g.name)
+          genres: movie.genres ? movie.genres.map((g) => g.name) : []
         }
       };
     }
@@ -152,12 +150,11 @@ builder.defineMetaHandler(async (args) => {
         params: { api_key: TMDB_API_KEY, language: "ms-MY" }
       });
       const tv = response.data;
-
-      // Bina senarai episod untuk Stremio
       const videos = [];
+
       if (tv.seasons) {
         for (const season of tv.seasons) {
-          if (season.season_number === 0) continue; // Langkau episod khas (specials)
+          if (season.season_number === 0) continue;
           for (let ep = 1; ep <= season.episode_count; ep++) {
             videos.push({
               id: `tmdb:${tv.id}:${season.season_number}:${ep}`,
@@ -176,9 +173,9 @@ builder.defineMetaHandler(async (args) => {
           name: tv.name,
           poster: tv.poster_path ? `${TMDB_IMAGE_BASE}${tv.poster_path}` : null,
           background: tv.backdrop_path ? `https://image.tmdb.org/t/p/original${tv.backdrop_path}` : null,
-          description: tv.overview,
+          description: tv.overview || "Tiada sinopsis tersedia.",
           releaseInfo: tv.first_air_date ? tv.first_air_date.substring(0, 4) : "",
-          genres: tv.genres.map((g) => g.name),
+          genres: tv.genres ? tv.genres.map((g) => g.name) : [],
           videos: videos
         }
       };
@@ -200,9 +197,6 @@ builder.defineStreamHandler(async (args) => {
 
   try {
     if (args.type === "series") {
-      // IDFormat untuk episod: tmdb:ID_TV:MUSIM:EPISOD (cth: tmdb:12345:1:2)
-      console.log(`Permintaan Stream Drama ID: ${tmdbId}, Musim ${season}, Episod ${episode}`);
-
       return {
         streams: [
           {
@@ -232,5 +226,5 @@ builder.defineStreamHandler(async (args) => {
 });
 
 // 5. Jalankan Pelayan
-serveHTTP(builder.getInterface(), { port: 7000 });
-console.log("Addon Filem & Drama Malaysia sedia di: http://127.0.0.1:7000/manifest.json");
+serveHTTP(builder.getInterface(), { port: PORT });
+console.log(`Addon sedia dijalankan pada port ${PORT}`);
